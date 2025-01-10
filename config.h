@@ -3,8 +3,8 @@
 #define CONFIG_H
 
 //================ NETWORK CONFIGURATION ================
-const char *WIFI_SSID = "";  
-const char *WIFI_PASSWORD = "";
+const char *WIFI_SSID = "YOUR_SSID";
+const char *WIFI_PASSWORD = "YOUR_PASSWORD";
 
 const char *HTTP_USERNAME = "admin";
 const char *HTTP_PASSWORD = "admin";
