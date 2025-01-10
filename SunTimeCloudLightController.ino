@@ -1,4 +1,5 @@
 //================ LIBRARY IMPORTS ================
+#include "config.h"
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
@@ -12,29 +13,11 @@
 #include <ESP8266HTTPClient.h>
 #include "index_html.h"
 
-//================ CONFIGURATION ================
-// Network Configuration
-const char *ssid = "";  
-const char *password = "";
-
-
-const char *http_username = "admin";
-const char *http_password = "admin";
-const char *ntpServerName = "time.google.com";
-
-//================ CLOUD COVERAGE CONFIGURATION ================
-const int CLOUD_COVERAGE_THRESHOLD = 78; 
-const int CLOUD_COVERAGE_HYSTERESIS = 5;
-
-const char* API_HOST = "api.open-meteo.com";
-const int HTTP_PORT = 80;
-const int EEPROM_SIZE = 512;
-const unsigned long WIFI_TIMEOUT = 10000;
+//================ GLOBAL VARIABLES ================
 float currentCloudCoverage = -1;
 bool isMonitoring = false;
 bool cloudTriggeredActivation = false;
 String cloudStatus = "Not monitoring";
-
 
 // Buffer Configuration
 const int BUFFER_SIZE = 6144;  
@@ -50,13 +33,6 @@ const int RELAY_PIN = 2;      // 12 or D6 - Main light relay
 const int ERROR_LED_PIN = 14;  // 14 or D5 - Error indicator
 const int STATUS_LED_PIN = 13; // 13 or D7 - Status indicator
 
-//================ TIME OFFSET CONFIGURATION ================
-const int TIME_RISE_OFFSET_MINUTES = 0;     
-const int TIME_SET_OFFSET_MINUTES = 0;      
-const int TIME_OFFSET_MONITORING = 30;      
-const int MAX_MONITORING_RETRIES = 3;       
-const int RETRY_DELAY_MS = 300000;         
-
 // Change these from const to regular variables so they can be modified
 int TIME_RISE_OFFSET_ADDITIONAL = 0;  
 int TIME_SET_OFFSET_ADDITIONAL = 0;   
@@ -65,12 +41,6 @@ int TIME_SET_OFFSET_ADDITIONAL = 0;
 bool monitoring_sunrise = true;
 bool monitoring_sunset = true;
 int monitoring_retry_count = 0;
-
-// Time Configuration
-const int TIMEZONE_OFFSET = 0;
-const int DAYLIGHT_OFFSET = 3600;
-const float LATITUDE = 0;
-const float LONGITUDE = 0;
 
 // Relay State Configuration
 int relayOn = LOW;
@@ -85,7 +55,7 @@ int localtime_h, localtime_m;
 
 // Object Instances
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, ntpServerName, TIMEZONE_OFFSET + DAYLIGHT_OFFSET);
+NTPClient timeClient(ntpUDP, NTP_SERVER, TIMEZONE_OFFSET + DAYLIGHT_OFFSET);
 ESP8266WebServer server(80);
 SunSet sun;
 
@@ -143,7 +113,7 @@ void loadSettings() {
 //================ WIFI FUNCTIONS ================
 void connectToWiFi() {
   Serial.println("Connecting to WiFi");
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   unsigned long startAttemptTime = millis();
 
@@ -167,7 +137,7 @@ void connectToWiFi() {
 void enableWiFi() {
   if (!wifiEnabled) {
     WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     wifiEnabled = true;
     lastTimeSync = 0; // Force time sync
     Serial.println("WiFi enabled");

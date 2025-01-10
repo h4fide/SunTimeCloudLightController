@@ -1,39 +1,30 @@
 # Sunrise Sunset and Cloud Coverage Light Control System
+
 An ESP8266-based automated light control system that manages lighting based on sunrise/sunset times and cloud coverage conditions.
 
-
-
-### Sunset 🌇 Logic Example
-```
-IF Cloud Coverage < 75% THEN
-    IF Sunset - 30min <= CurrentTime THEN
-        Turn On Light
-    ...
-```
 ## Features ✨
 
 - Automatic light control based on sunrise and sunset times
-- Cloud coverage monitoring and adaptive light scheduling
-- Web interface for manual control and configuration
-- OTA (Over-The-Air) updates support
-- Secure web interface with authentication
-- LED status indicators for system state
-- EEPROM-based settings persistence
+- Intelligent cloud coverage monitoring with adaptive scheduling
+- Web interface with authentication for remote control
+- OTA (Over-The-Air) firmware updates
 - Configurable time offsets and thresholds
+- EEPROM-based settings persistence
+- LED status indicators for system monitoring
+- Failsafe operation with offline capabilities
 
 ## Notes 📝
 - I don't have RTC module so I used NTPClient to get the current time from the internet 😢
 - I used [Open-Meteo](https://open-meteo.com/) API to get the cloud coverage data
 - I used the [sunrise.h](https://github.com/buelowp/sunset) library to calculate sunrise and sunset times
 
-## Hardware Requirements    🛠️
+## Hardware Requirements 🛠️
 
-- ESP8266 board (NodeMCU or similar)
-- Relay module
-- 2x LED indicators (Status and Error)
+- ESP8266 development board (NodeMCU or similar)
+- Relay module (for light control)
+- 2x LEDs for status indication
 - Power supply
-- I Used AC 220V PIR Motion Sensor 
-- Light
+- Light fixture connection
 
 ## Pin Configuration 🔢
 
@@ -62,12 +53,12 @@ IF Cloud Coverage < 75% THEN
      * ESP8266WebServer
      * ArduinoJson
 
-3. Configuration
-   - Open [SunTimeCloudLightController.ino](SunTimeCloudLightController.ino) in Arduino IDE
+3. Configuration ⚙️
+   - Open [config.h](config.h) in Arduino IDE
    - Update WiFi credentials (ssid and password)
    ```cpp	
-    const char* your_ssid
-    const char* your_password
+    const char *WIFI_SSID = "";  
+    const char *WIFI_PASSWORD = "";
     ```
    - Set your location (LATITUDE and LONGITUDE)<br>
    **Note:** You can get your location from [Google Maps](https://www.google.com/maps)
@@ -79,8 +70,17 @@ IF Cloud Coverage < 75% THEN
     
     ```cpp
     const int CLOUD_COVERAGE_THRESHOLD = 78;
+    const int CLOUD_COVERAGE_HYSTERESIS = 5;
+    ```    
+    - Set time offsets if needed (default 0)
+     ```cpp
+    const int SUNRISE_OFFSET = 0;
+    const int SUNSET_OFFSET = 0;
     ```
-     
+    - Set the time zone (default GMT 0)
+    ```cpp
+    const int TIME_ZONE = 0;
+    ```
    - Upload code to ESP8266
 
 4. First Run
@@ -108,8 +108,13 @@ IF Cloud Coverage < 75% THEN
 
 ## Troubleshooting 🛠️
 
-- Error LED On: WiFi connection issues
-- Blinking LED: For Wifi , NTP, and API errors
+- Error LED On:
+    - Wifi connection error
+- Status LED Blinking when is:
+    - No internet connection
+    - Cloud coverage API error
+    - NTP time sync error
+
 
 ## Contributing 🤝
 
