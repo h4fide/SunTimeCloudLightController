@@ -19,19 +19,15 @@ bool isMonitoring = false;
 bool cloudTriggeredActivation = false;
 String cloudStatus = "Not monitoring";
 
-// Buffer Configuration
-const int BUFFER_SIZE = 6144;  
+// Buffer already defined in config.h
 char buffer[BUFFER_SIZE]; 
 
 // WiFi control variables
 unsigned long lastTimeSync = 0;
-const unsigned long SYNC_INTERVAL = 24 * 60 * 60 * 1000;
+// SYNC_INTERVAL already defined in config.h
 bool wifiEnabled = true;
 
-// Pin Definitions
-const int RELAY_PIN = 2;      // 12 or D6 - Main light relay
-const int ERROR_LED_PIN = 14;  // 14 or D5 - Error indicator
-const int STATUS_LED_PIN = 13; // 13 or D7 - Status indicator
+// Pin Definitions are already in config.h - removing duplicates
 
 // Change these from const to regular variables so they can be modified
 int TIME_RISE_OFFSET_ADDITIONAL = 0;  
@@ -46,6 +42,9 @@ int monitoring_retry_count = 0;
 int relayOn = LOW;
 int relayOff = HIGH; 
 
+// HTTP Authentication variables - add these
+const char* http_username = "admin";
+const char* http_password = "admin";
 
 //================ GLOBAL VARIABLES ================
 // Time Variables
@@ -296,52 +295,53 @@ float getCloudCoverage() {
 bool monitorCloudConditions(bool isSunrise) {
     if (monitoring_retry_count >= MAX_MONITORING_RETRIES) {
         monitoring_retry_count = 0;
+        cloudStatus = "Max retries reached";
+        
         if (isSunrise) {
             monitoring_sunrise = false;
-            monitoring_sunset = true;
             TIME_RISE_OFFSET_ADDITIONAL = 0;
-            return false;
         } else {
             monitoring_sunset = false;
-            monitoring_sunrise = true;
             TIME_SET_OFFSET_ADDITIONAL = 0;
-            return true;
         }
+        
+        return false; // Don't activate lights on retry failure
     }
     
     float cloudCoverage = getCloudCoverage();
+    currentCloudCoverage = cloudCoverage; // Update global variable
+    
     if (cloudCoverage < 0) {
-
+        cloudStatus = "Error fetching data";
         monitoring_retry_count++;
-        delay(RETRY_DELAY_MS);
-        return monitorCloudConditions(isSunrise);
+        delay(1000); // Short delay before returning to main loop
+        return false; // Don't activate yet, will retry later
     }
     
     monitoring_retry_count = 0;
+    cloudStatus = String(cloudCoverage) + "% cloud coverage";
     
-    if (cloudCoverage > CLOUD_COVERAGE_THRESHOLD) {
-        if (isSunrise) {
-            TIME_RISE_OFFSET_ADDITIONAL += 30;
-            return false;
-        } else {
-            monitoring_sunset = false;
-            monitoring_sunrise = true;
-            TIME_SET_OFFSET_ADDITIONAL = 0;
-            return true;
-        }
+    bool shouldActivate = cloudCoverage > CLOUD_COVERAGE_THRESHOLD;
+    
+    if (shouldActivate) {
+        cloudStatus = "Activating (Cloud coverage: " + String(cloudCoverage) + "%)";
+        cloudTriggeredActivation = true;
+        currentState = ACTIVE;
+    } else {
+        cloudStatus = "Normal (Cloud coverage: " + String(cloudCoverage) + "%)";
     }
     
     if (isSunrise) {
-        monitoring_sunrise = false;
-        monitoring_sunset = true;
-        TIME_RISE_OFFSET_ADDITIONAL = 0;
-        return false;
+        monitoring_sunrise = !shouldActivate;
+        if (shouldActivate) TIME_RISE_OFFSET_ADDITIONAL += 30;
+        else TIME_RISE_OFFSET_ADDITIONAL = 0;
     } else {
-        monitoring_sunset = false;
-        monitoring_sunrise = true;
-        TIME_SET_OFFSET_ADDITIONAL = 0;
-        return true;
+        monitoring_sunset = !shouldActivate;
+        if (shouldActivate) TIME_SET_OFFSET_ADDITIONAL = 0;
+        else TIME_SET_OFFSET_ADDITIONAL = 0;
     }
+    
+    return shouldActivate;
 }
 
 //================ LIGHT CONTROL FUNCTION ================
@@ -378,39 +378,48 @@ String formatTime(double minutesFromMidnight, bool isSunrise) {
     int timeOffset = isSunrise ? TIME_RISE_OFFSET_MINUTES : TIME_SET_OFFSET_MINUTES;
     int additionalOffset = isSunrise ? TIME_RISE_OFFSET_ADDITIONAL : TIME_SET_OFFSET_ADDITIONAL;
     
-    if (minutes < timeOffset) {
-        minutes = minutes - timeOffset + 60;
-        hours--;
-    } else {
-        minutes = minutes - timeOffset;
+    // Apply total offset at once for more accuracy
+    int totalOffset = timeOffset + additionalOffset;
+    int totalMinutes = (hours * 60 + minutes) - totalOffset;
+    
+    // Handle negative minutes by adjusting hours
+    if (totalMinutes < 0) {
+        totalMinutes += 24 * 60; // Add a full day
     }
     
-    if (minutes < additionalOffset) {
-        minutes = minutes - additionalOffset + 60;
-        hours--;
-    } else {
-        minutes = minutes - additionalOffset;
-    }
+    hours = (totalMinutes / 60) % 24;
+    minutes = totalMinutes % 60;
     
-    return String(hours) + ":" + (minutes < 10 ? "0" : "") + String(minutes);
+    char timeStr[6];
+    sprintf(timeStr, "%d:%02d", hours, minutes);
+    return String(timeStr);
 }
-
-
 
 void updateSunriseSunsetTime() {
     sun.setCurrentDate(year(), month(), day());
-    sun.setTZOffset(1);
+    sun.setTZOffset(TIMEZONE_OFFSET / 3600.0); // Convert seconds to hours
     
     double sunrise = sun.calcSunrise();
     double sunset = sun.calcSunset();
     
     String sunriseTime = formatTime(sunrise, true);
-    sunriseHour = sunriseTime.substring(0, 1).toInt();
-    sunriseMinute = sunriseTime.substring(2, 4).toInt();
-    
     String sunsetTime = formatTime(sunset, false);
-    sunsetHour = sunsetTime.substring(0, 2).toInt();
-    sunsetMinute = sunsetTime.substring(3, 5).toInt();
+    
+    // Fix parsing logic to handle both single and double-digit hours
+    int colonIndex = sunriseTime.indexOf(':');
+    if (colonIndex > 0) {
+        sunriseHour = sunriseTime.substring(0, colonIndex).toInt();
+        sunriseMinute = sunriseTime.substring(colonIndex + 1).toInt();
+    }
+    
+    colonIndex = sunsetTime.indexOf(':');
+    if (colonIndex > 0) {
+        sunsetHour = sunsetTime.substring(0, colonIndex).toInt();
+        sunsetMinute = sunsetTime.substring(colonIndex + 1).toInt();
+    }
+    
+    Serial.printf("Updated sun times - Sunrise: %02d:%02d, Sunset: %02d:%02d\n", 
+                 sunriseHour, sunriseMinute, sunsetHour, sunsetMinute);
     
     saveSettings();
 }
@@ -547,53 +556,56 @@ void setup() {
   ArduinoOTA.setHostname("LightController");
   ArduinoOTA.setPassword("admin");
   
+  timeClient.begin();
   updateLocalTime();
 
-  sun.setPosition(LATITUDE, LONGITUDE, 1);
+  sun.setPosition(LATITUDE, LONGITUDE, TIMEZONE_OFFSET / 3600.0);
   updateSunriseSunsetTime();
   
+  // Setup web server before starting it
   setupWebServer();
   server.begin();
   
-
+  Serial.println("Setup complete");
 }
 
 void loop() {
     ESP.wdtFeed();
     
+    // Handle web server and OTA if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+        ArduinoOTA.handle();
+        server.handleClient();
+        
+        // Periodically update time if connected
+        if ((millis() - lastTimeSync) > SYNC_INTERVAL) {
+            updateLocalTime();
+            updateSunriseSunsetTime();
+            lastTimeSync = millis();
+        }
+    } else if (wifiEnabled) {
+        // Try to reconnect if WiFi should be on but isn't connected
+        connectToWiFi();
+    }
+    
     time_t now = timeClient.getEpochTime();
     int currentHour = hour(now);
     int currentMinute = minute(now);
     
-    if (wifiEnabled) {
-        unsigned long startTime = millis();
-        while (millis() - startTime < 100) {
-            ArduinoOTA.handle();
-            server.handleClient();
-            yield();
-        }
-        
-
-        if ((millis() - lastTimeSync) > SYNC_INTERVAL && currentState != MONITORING) {
-            if (WiFi.status() == WL_CONNECTED) {
-                updateLocalTime();
-                updateSunriseSunsetTime();
-                WiFi.disconnect(true);
-                WiFi.mode(WIFI_OFF);
-                wifiEnabled = false;
-            }
-        }
-    }
+    // Check if we should be in monitoring window
+    isWithinMonitoringWindow(currentHour, currentMinute);
     
+    // Handle light control based on time and cloud conditions
     bool shouldBeOn = shouldActivateLights(currentHour, currentMinute);
     digitalWrite(RELAY_PIN, shouldBeOn ? relayOn : relayOff);
     
+    // Update LED indicators
     digitalWrite(ERROR_LED_PIN, wifiEnabled && (WiFi.status() != WL_CONNECTED));
     
     if (cloudTriggeredActivation) {
-        digitalWrite(STATUS_LED_PIN, (millis() / 500) % 2);
+        digitalWrite(STATUS_LED_PIN, (millis() / 500) % 2); // Blink for cloud triggered
     } else {
-        digitalWrite(STATUS_LED_PIN, shouldBeOn);
+        digitalWrite(STATUS_LED_PIN, shouldBeOn); // Steady for normal schedule
     }
     
     delay(100);
@@ -606,17 +618,22 @@ void setupWebServer() {
   server.on("/settime", handleSetTime);
   server.on("/toggle", handleToggle);
   server.on("/cloudcheck", handleCloudMonitoring);
-    server.on("/reset", []() {
-        loadSettings();
-        server.sendHeader("Location", "/");
-        server.send(303);
-    });
+  server.on("/reset", []() {
+      loadSettings();
+      server.sendHeader("Location", "/");
+      server.send(303);
+  });
   server.on("/updateonline", []() {
     updateSunriseSunsetTime();
     server.sendHeader("Location", "/");
     server.send(303);
   });
+  server.on("/reconnect", []() {
+    enableWiFi();
+    connectToWiFi();
+    server.sendHeader("Location", "/");
+    server.send(303);
+  });
   
-  server.begin();
-  Serial.println("HTTP server started at http://" + WiFi.localIP().toString());
+  Serial.println("Web server routes configured");
 }
