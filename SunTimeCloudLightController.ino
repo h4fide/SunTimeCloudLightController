@@ -451,6 +451,7 @@ void handleRoot() {
     page.replace("[LIGHT_STATE]", isLightOn ? "ON" : "OFF");
     page.replace("[CURRENT_TIME]", timeClient.getFormattedTime());
     page.replace("[BUTTON_TEXT]", isLightOn ? "Turn Off" : "Turn On");
+    page.replace("[BUTTON_ICON]", isLightOn ? "🌙" : "🔆");
     page.replace("[CLOUD_COVERAGE]", String(currentCloudCoverage, 1));
     page.replace("[CLOUD_STATUS]", isMonitoring ? stateInfo : cloudStatus);
     page.replace("[CLOUD_THRESHOLD]", String(CLOUD_COVERAGE_THRESHOLD));
