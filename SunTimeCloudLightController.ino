@@ -45,7 +45,14 @@ char http_password[32] = "admin";
 
 //================ CONFIGURATION VARIABLES ================
 int cloudThreshold = CLOUD_COVERAGE_THRESHOLD;
+int cloudHysteresis = CLOUD_COVERAGE_HYSTERESIS;
 int monitoringWindow = TIME_OFFSET_MONITORING;
+int sunriseOffset = TIME_RISE_OFFSET_MINUTES;
+int sunsetOffset = TIME_SET_OFFSET_MINUTES;
+int timezoneOffsetSec = TIMEZONE_OFFSET;
+int daylightOffsetSec = DAYLIGHT_OFFSET;
+float locationLatitude = LATITUDE;
+float locationLongitude = LONGITUDE;
 char adminUsername[32] = "admin";
 char adminPassword[32] = "admin";
 
@@ -59,6 +66,11 @@ NTPClient timeClient(ntpUDP, NTP_SERVER, TIMEZONE_OFFSET + DAYLIGHT_OFFSET);
 ESP8266WebServer server(80);
 SunSet sun;
 
+char deviceName[32] = "LightController"; // Device name for OTA and display
+int cloudHysteresis = CLOUD_COVERAGE_HYSTERESIS; // Hysteresis for cloud coverage
+int maxRetries = MAX_MONITORING_RETRIES;
+int timezoneOffsetSec = TIMEZONE_OFFSET; 
+int daylightOffsetSec = DAYLIGHT_OFFSET;
 
 //================ SYSTEM STATE ENUM ================
 enum SystemState {
@@ -81,11 +93,24 @@ void saveSettings() {
   EEPROM.put(2 * sizeof(int), sunsetHour);
   EEPROM.put(3 * sizeof(int), sunsetMinute);
   
-  // Save additional configuration
+  // Save basic configuration
   int addr = 4 * sizeof(int);
   EEPROM.put(addr, cloudThreshold); addr += sizeof(int);
   EEPROM.put(addr, monitoringWindow); addr += sizeof(int);
   EEPROM.put(addr, manualOverrideDuration); addr += sizeof(int);
+  
+  // Save advanced configuration
+  EEPROM.put(addr, cloudHysteresis); addr += sizeof(int);
+  EEPROM.put(addr, maxRetries); addr += sizeof(int);
+  EEPROM.put(addr, timezoneOffsetSec); addr += sizeof(int);
+  EEPROM.put(addr, daylightOffsetSec); addr += sizeof(int);
+  EEPROM.put(addr, relayOn == HIGH ? 1 : 0); addr += sizeof(int);
+  EEPROM.put(addr, sunriseOffset); addr += sizeof(int);
+  EEPROM.put(addr, sunsetOffset); addr += sizeof(int);
+  
+  // Save location data
+  EEPROM.put(addr, locationLatitude); addr += sizeof(float);
+  EEPROM.put(addr, locationLongitude); addr += sizeof(float);
   
   // Save username and password - limit length for safety
   for (int i = 0; i < 32; i++) {
@@ -96,6 +121,12 @@ void saveSettings() {
   for (int i = 0; i < 32; i++) {
     EEPROM.write(addr++, adminPassword[i]);
     if (adminPassword[i] == 0) break;
+  }
+  
+  // Save device name
+  for (int i = 0; i < 32; i++) {
+    EEPROM.write(addr++, deviceName[i]);
+    if (deviceName[i] == 0) break;
   }
   
   bool success = EEPROM.commit();
@@ -114,11 +145,29 @@ void loadSettings() {
   EEPROM.get(2 * sizeof(int), sunsetHour);
   EEPROM.get(3 * sizeof(int), sunsetMinute);
   
-  // Read additional configuration
+  // Read basic configuration
   int addr = 4 * sizeof(int);
   EEPROM.get(addr, cloudThreshold); addr += sizeof(int);
   EEPROM.get(addr, monitoringWindow); addr += sizeof(int);
   EEPROM.get(addr, manualOverrideDuration); addr += sizeof(int);
+  
+  // Read advanced configuration
+  EEPROM.get(addr, cloudHysteresis); addr += sizeof(int);
+  EEPROM.get(addr, maxRetries); addr += sizeof(int);
+  EEPROM.get(addr, timezoneOffsetSec); addr += sizeof(int);
+  EEPROM.get(addr, daylightOffsetSec); addr += sizeof(int);
+  
+  int relayLogic;
+  EEPROM.get(addr, relayLogic); addr += sizeof(int);
+  relayOn = relayLogic == 1 ? HIGH : LOW;
+  relayOff = relayLogic == 1 ? LOW : HIGH;
+  
+  EEPROM.get(addr, sunriseOffset); addr += sizeof(int);
+  EEPROM.get(addr, sunsetOffset); addr += sizeof(int);
+  
+  // Read location data
+  EEPROM.get(addr, locationLatitude); addr += sizeof(float);
+  EEPROM.get(addr, locationLongitude); addr += sizeof(float);
   
   // Read username and password - limit length for safety
   int i;
@@ -136,6 +185,14 @@ void loadSettings() {
   }
   adminPassword[i] = 0; // Ensure null termination
   
+  // Read device name
+  for (i = 0; i < 31; i++) {
+    char c = EEPROM.read(addr++);
+    deviceName[i] = c;
+    if (c == 0) break;
+  }
+  deviceName[i] = 0; // Ensure null termination
+  
   // Validate values
   sunriseHour = constrain(sunriseHour, 0, 23);
   sunriseMinute = constrain(sunriseMinute, 0, 59);
@@ -143,8 +200,27 @@ void loadSettings() {
   sunsetMinute = constrain(sunsetMinute, 0, 59);
   
   cloudThreshold = constrain(cloudThreshold, 0, 100);
+  cloudHysteresis = constrain(cloudHysteresis, 0, 20);
   monitoringWindow = constrain(monitoringWindow, 5, 120);
   manualOverrideDuration = constrain(manualOverrideDuration, 5, 1440);
+  
+  maxRetries = constrain(maxRetries, 1, 10);
+  sunriseOffset = constrain(sunriseOffset, -120, 120);  
+  sunsetOffset = constrain(sunsetOffset, -120, 120);
+  
+  // If location values seem wrong, use defaults
+  if (isnan(locationLatitude) || locationLatitude < -90 || locationLatitude > 90) {
+    locationLatitude = LATITUDE;
+  }
+  
+  if (isnan(locationLongitude) || locationLongitude < -180 || locationLongitude > 180) {
+    locationLongitude = LONGITUDE;
+  }
+  
+  // If device name is empty, set default
+  if (strlen(deviceName) == 0) {
+    strcpy(deviceName, "LightController");
+  }
   
   // Copy values to http variables (fixing the pointer issue)
   strcpy(http_username, adminUsername);
@@ -153,11 +229,15 @@ void loadSettings() {
   EEPROM.end();
   
   Serial.println("Loaded settings:");
-  Serial.printf("Sunrise: %d:%d\n", sunriseHour, sunriseMinute);
-  Serial.printf("Sunset: %d:%d\n", sunsetHour, sunsetMinute);
-  Serial.printf("Cloud Threshold: %d%%\n", cloudThreshold);
+  Serial.printf("Sunrise: %d:%d (offset %d min)\n", sunriseHour, sunriseMinute, sunriseOffset);
+  Serial.printf("Sunset: %d:%d (offset %d min)\n", sunsetHour, sunsetMinute, sunsetOffset);
+  Serial.printf("Cloud Threshold: %d%% with %d%% hysteresis\n", cloudThreshold, cloudHysteresis);
   Serial.printf("Monitoring Window: %d mins\n", monitoringWindow);
+  Serial.printf("Location: %f, %f\n", locationLatitude, locationLongitude);
+  Serial.printf("Time settings: TZ=%d, DST=%d\n", timezoneOffsetSec, daylightOffsetSec);
+  Serial.printf("Relay Logic: %s\n", relayOn == HIGH ? "Active HIGH" : "Active LOW");
   Serial.printf("Auth credentials: %s / %s\n", http_username, http_password);
+  Serial.printf("Device Name: %s\n", deviceName);
 }
 
 
@@ -356,7 +436,7 @@ float getCloudCoverage() {
 
 //================ MODIFIED CLOUD MONITORING FUNCTION ================
 bool monitorCloudConditions(bool isSunrise) {
-    if (monitoring_retry_count >= MAX_MONITORING_RETRIES) {
+    if (monitoring_retry_count >= maxRetries) {
         monitoring_retry_count = 0;
         cloudStatus = "Max retries reached";
         
@@ -384,7 +464,21 @@ bool monitorCloudConditions(bool isSunrise) {
     monitoring_retry_count = 0;
     cloudStatus = String(cloudCoverage) + "% cloud coverage";
     
-    bool shouldActivate = cloudCoverage > cloudThreshold;
+    // Use hysteresis for more stable operation
+    static bool wasAboveThreshold = false;
+    bool isAboveThreshold = cloudCoverage > cloudThreshold;
+    bool shouldActivate;
+    
+    if (isAboveThreshold && !wasAboveThreshold) {
+        shouldActivate = true;
+        wasAboveThreshold = true;
+    } else if (!isAboveThreshold && wasAboveThreshold) {
+        // Only deactivate if we drop below threshold minus hysteresis
+        shouldActivate = !(cloudCoverage < (cloudThreshold - cloudHysteresis));
+        if (!shouldActivate) wasAboveThreshold = false;
+    } else {
+        shouldActivate = wasAboveThreshold;
+    }
     
     if (shouldActivate) {
         cloudStatus = "Activating (Cloud coverage: " + String(cloudCoverage) + "%)";
@@ -438,7 +532,8 @@ String formatTime(double minutesFromMidnight, bool isSunrise) {
     int hours = int(minutesFromMidnight / 60);
     int minutes = int(minutesFromMidnight) % 60;
     
-    int timeOffset = isSunrise ? TIME_RISE_OFFSET_MINUTES : TIME_SET_OFFSET_MINUTES;
+    // Use the configurable offsets
+    int timeOffset = isSunrise ? sunriseOffset : sunsetOffset;
     int additionalOffset = isSunrise ? TIME_RISE_OFFSET_ADDITIONAL : TIME_SET_OFFSET_ADDITIONAL;
     
     // Apply total offset at once for more accuracy
@@ -459,7 +554,8 @@ String formatTime(double minutesFromMidnight, bool isSunrise) {
 
 void updateSunriseSunsetTime() {
     sun.setCurrentDate(year(), month(), day());
-    sun.setTZOffset(TIMEZONE_OFFSET / 3600.0); // Convert seconds to hours
+    sun.setTZOffset((timezoneOffsetSec + daylightOffsetSec) / 3600.0); // Convert seconds to hours
+    sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
     
     double sunrise = sun.calcSunrise();
     double sunset = sun.calcSunset();
@@ -525,12 +621,24 @@ void handleRoot() {
     page.replace("[CLOUD_COVERAGE]", currentCloudCoverage < 0 ? "Unknown" : String(currentCloudCoverage, 1));
     page.replace("[CLOUD_STATUS]", isMonitoring ? stateInfo : cloudStatus);
     page.replace("[CLOUD_THRESHOLD]", String(cloudThreshold));
+    page.replace("[CLOUD_HYSTERESIS]", String(cloudHysteresis));
     page.replace("[MONITORING_WINDOW]", String(monitoringWindow));
+    page.replace("[OVERRIDE_DURATION]", String(manualOverrideDuration)); 
     page.replace("[SUNRISE_HOUR]", String(sunriseHour));
     page.replace("[SUNRISE_MINUTE]", String(sunriseMinute < 10 ? "0" : "") + String(sunriseMinute));
     page.replace("[SUNSET_HOUR]", String(sunsetHour));
     page.replace("[SUNSET_MINUTE]", String(sunsetMinute < 10 ? "0" : "") + String(sunsetMinute));
     page.replace("[ADMIN_USERNAME]", String(adminUsername));
+    page.replace("[MAX_RETRIES]", String(maxRetries));
+    page.replace("[TIMEZONE_OFFSET]", String(timezoneOffsetSec));
+    page.replace("[DAYLIGHT_OFFSET]", String(daylightOffsetSec));
+    page.replace("[SUNRISE_OFFSET]", String(sunriseOffset));
+    page.replace("[SUNSET_OFFSET]", String(sunsetOffset));
+    page.replace("[LATITUDE]", String(locationLatitude, 6));
+    page.replace("[LONGITUDE]", String(locationLongitude, 6));
+    page.replace("[DEVICE_NAME]", String(deviceName));
+    page.replace("[RELAY_LOW_SELECTED]", relayOn == LOW ? "selected" : "");
+    page.replace("[RELAY_HIGH_SELECTED]", relayOn == HIGH ? "selected" : "");
     
     server.send(200, "text/html", page);
     ESP.wdtFeed();
@@ -683,30 +791,18 @@ void handleSaveConfig() {
         }
     }
     
+    if (server.hasArg("cloudHysteresis")) {
+        int newHysteresis = constrain(server.arg("cloudHysteresis").toInt(), 0, 20);
+        if (cloudHysteresis != newHysteresis) {
+            cloudHysteresis = newHysteresis;
+            changed = true;
+        }
+    }
+    
     if (server.hasArg("monitoringWindow")) {
         int newWindow = constrain(server.arg("monitoringWindow").toInt(), 5, 120);
         if (monitoringWindow != newWindow) {
             monitoringWindow = newWindow;
-            changed = true;
-        }
-    }
-    
-    if (server.hasArg("username") && server.arg("username").length() > 0 && 
-        server.arg("username").length() < 32) {
-        if (strcmp(adminUsername, server.arg("username").c_str()) != 0) {
-            strncpy(adminUsername, server.arg("username").c_str(), 31);
-            adminUsername[31] = 0; // Ensure null termination
-            strcpy(http_username, adminUsername); // Update the authentication variable
-            changed = true;
-        }
-    }
-    
-    if (server.hasArg("password") && server.arg("password").length() > 0 && 
-        server.arg("password").length() < 32) {
-        if (strcmp(adminPassword, server.arg("password").c_str()) != 0) {
-            strncpy(adminPassword, server.arg("password").c_str(), 31);
-            adminPassword[31] = 0; // Ensure null termination
-            strcpy(http_password, adminPassword); // Update the authentication variable
             changed = true;
         }
     }
@@ -726,6 +822,201 @@ void handleSaveConfig() {
     
     server.sendHeader("Location", "/");
     server.send(303);
+}
+
+// Add new handlers for the advanced and system configurations
+void handleSaveAdvanced() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+    
+    bool changed = false;
+    bool requiresReconnect = false;
+    bool sunTimeChanged = false;
+    
+    if (server.hasArg("sunriseOffset")) {
+        int newOffset = constrain(server.arg("sunriseOffset").toInt(), -120, 120);
+        if (sunriseOffset != newOffset) {
+            sunriseOffset = newOffset;
+            changed = true;
+            sunTimeChanged = true;
+        }
+    }
+    
+    if (server.hasArg("sunsetOffset")) {
+        int newOffset = constrain(server.arg("sunsetOffset").toInt(), -120, 120);
+        if (sunsetOffset != newOffset) {
+            sunsetOffset = newOffset;
+            changed = true;
+            sunTimeChanged = true;
+        }
+    }
+    
+    if (server.hasArg("maxRetries")) {
+        int newRetries = constrain(server.arg("maxRetries").toInt(), 1, 10);
+        if (maxRetries != newRetries) {
+            maxRetries = newRetries;
+            changed = true;
+        }
+    }
+    
+    if (server.hasArg("timezoneOffset")) {
+        int newOffset = server.arg("timezoneOffset").toInt();
+        if (timezoneOffsetSec != newOffset) {
+            timezoneOffsetSec = newOffset;
+            changed = true;
+            requiresReconnect = true;
+            sunTimeChanged = true;
+        }
+    }
+    
+    if (server.hasArg("daylightOffset")) {
+        int newOffset = server.arg("daylightOffset").toInt();
+        if (daylightOffsetSec != newOffset) {
+            daylightOffsetSec = newOffset;
+            changed = true;
+            requiresReconnect = true;
+            sunTimeChanged = true;
+        }
+    }
+    
+    if (changed) {
+        Serial.println("Saving advanced configuration changes");
+        saveSettings();
+        
+        if (requiresReconnect) {
+            // Update the NTP client with new offsets
+            timeClient.setTimeOffset(timezoneOffsetSec + daylightOffsetSec);
+            lastTimeSync = 0; // Force time sync
+        }
+        
+        if (sunTimeChanged) {
+            // Recalculate sunrise/sunset times
+            updateSunriseSunsetTime();
+        }
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleSaveSystem() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+    
+    bool changed = false;
+    bool credentialsChanged = false;
+    
+    if (server.hasArg("username") && server.arg("username").length() > 0 && 
+        server.arg("username").length() < 32) {
+        if (strcmp(adminUsername, server.arg("username").c_str()) != 0) {
+            strncpy(adminUsername, server.arg("username").c_str(), 31);
+            adminUsername[31] = 0; // Ensure null termination
+            strcpy(http_username, adminUsername); // Update the authentication variable
+            changed = true;
+            credentialsChanged = true;
+        }
+    }
+    
+    if (server.hasArg("password") && server.arg("password").length() > 0 && 
+        server.arg("password").length() < 32) {
+        if (strcmp(adminPassword, server.arg("password").c_str()) != 0) {
+            strncpy(adminPassword, server.arg("password").c_str(), 31);
+            adminPassword[31] = 0; // Ensure null termination
+            strcpy(http_password, adminPassword); // Update the authentication variable
+            changed = true;
+            credentialsChanged = true;
+        }
+    }
+    
+    if (server.hasArg("deviceName") && server.arg("deviceName").length() > 0 && 
+        server.arg("deviceName").length() < 32) {
+        if (strcmp(deviceName, server.arg("deviceName").c_str()) != 0) {
+            strncpy(deviceName, server.arg("deviceName").c_str(), 31);
+            deviceName[31] = 0; // Ensure null termination
+            changed = true;
+        }
+    }
+    
+    if (server.hasArg("relayLogic")) {
+        String relayLogic = server.arg("relayLogic");
+        bool newRelayOn = (relayLogic == "active_high") ? HIGH : LOW;
+        bool newRelayOff = (relayLogic == "active_high") ? LOW : HIGH;
+        
+        if (relayOn != newRelayOn) {
+            relayOn = newRelayOn;
+            relayOff = newRelayOff;
+            changed = true;
+            
+            // Apply the new relay state immediately
+            bool currentState = (digitalRead(RELAY_PIN) == relayOn);
+            digitalWrite(RELAY_PIN, currentState ? relayOn : relayOff);
+        }
+    }
+    
+    if (changed) {
+        Serial.println("Saving system configuration changes");
+        saveSettings();
+        
+        if (credentialsChanged) {
+            Serial.println("Credentials changed - new auth will be required");
+        }
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleSaveLocation() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+    
+    bool changed = false;
+    
+    if (server.hasArg("latitude")) {
+        float newLat = server.arg("latitude").toFloat();
+        if (abs(locationLatitude - newLat) > 0.00001 && newLat >= -90 && newLat <= 90) {
+            locationLatitude = newLat;
+            changed = true;
+        }
+    }
+    
+    if (server.hasArg("longitude")) {
+        float newLong = server.arg("longitude").toFloat();
+        if (abs(locationLongitude - newLong) > 0.00001 && newLong >= -180 && newLong <= 180) {
+            locationLongitude = newLong;
+            changed = true;
+        }
+    }
+    
+    if (changed) {
+        Serial.printf("Location updated to: %f, %f\n", locationLatitude, locationLongitude);
+        saveSettings();
+        
+        // Apply changes to the sunset calculator
+        sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
+        
+        // Recalculate sunrise/sunset times
+        updateSunriseSunsetTime();
+        
+        // Force time sync
+        lastTimeSync = 0;
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleReboot() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+    
+    server.send(200, "text/html", "<html><body><h1>Rebooting...</h1><p>The device is rebooting. Please wait 30 seconds before reconnecting.</p><script>setTimeout(function(){location.href='/'},30000);</script></body></html>");
+    delay(500);
+    ESP.restart();
 }
 
 void handleNotFound() {
@@ -811,13 +1102,16 @@ void setup() {
   connectToWiFi();
   
   ArduinoOTA.begin();
-  ArduinoOTA.setHostname("LightController");
-  ArduinoOTA.setPassword("admin");
+  ArduinoOTA.setHostname(deviceName); // Use the configured device name
+  ArduinoOTA.setPassword(adminPassword); // Use the admin password for OTA
   
+  // Apply configured timezone and DST settings
+  timeClient.setTimeOffset(timezoneOffsetSec + daylightOffsetSec);
   timeClient.begin();
   updateLocalTime();
 
-  sun.setPosition(LATITUDE, LONGITUDE, TIMEZONE_OFFSET / 3600.0);
+  // Use stored latitude and longitude
+  sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
   updateSunriseSunsetTime();
   setupWebServer();
   server.begin();
@@ -876,6 +1170,10 @@ void setupWebServer() {
     server.on("/toggle", HTTP_GET, handleToggle);
     server.on("/cloudcheck", HTTP_GET, handleCloudMonitoring);
     server.on("/saveconfig", HTTP_POST, handleSaveConfig);
+    server.on("/saveadvanced", HTTP_POST, handleSaveAdvanced);
+    server.on("/savelocation", HTTP_POST, handleSaveLocation);
+    server.on("/savesystem", HTTP_POST, handleSaveSystem);
+    server.on("/reboot", HTTP_GET, handleReboot);
     
     server.on("/api/status", HTTP_GET, handleSystemStatus);
     
