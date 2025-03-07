@@ -137,3 +137,22 @@ IF Cloud Coverage < 75% THEN
 ## Contributing 🤝
 
 Feel free to submit issues and enhancement requests.
+
+
+Main Endpoints:
+/ - Root/homepage (GET)
+/settime - Set sunrise/sunset times (POST)
+/toggle - Toggle lights manually (GET)
+/cloudcheck - Check cloud conditions (GET)
+/saveconfig - Save configuration settings (POST)
+
+API Endpoints:
+/api/status - Get system status in JSON format (GET)
+
+Utility Endpoints:
+/reset - Load settings from EEPROM (GET)
+/updateonline - Update sunrise/sunset times from online (GET)
+/reconnect - Reconnect WiFi (GET)
+/factory_reset - Reset credentials to default (GET)
+/debug_auth - Show authentication debug info (GET)
+
