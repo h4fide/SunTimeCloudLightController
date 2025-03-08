@@ -2,6 +2,13 @@
 
 An ESP8266-based automated light control system that manages lighting based on sunrise/sunset times and cloud coverage conditions.
 
+<div align="center">
+   <img src="https://cdn3d.iconscout.com/3d/premium/thumb/cloudy-3d-icon-download-in-png-blend-fbx-gltf-file-formats--weather-nature-cloud-pack-icons-8639616.png?f=webp" alt="Cloud Light Controller Icon" width="150">
+</div>
+
+---
+
+
 ## Core Functionality
 
 The system uses a combination of sunrise/sunset calculations and cloud coverage monitoring to control lighting. The core functionality includes:
