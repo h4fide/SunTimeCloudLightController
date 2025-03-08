@@ -169,37 +169,17 @@ $$
 
 ## HTTP Endpoints 🌐
 
-# HTTP Endpoints in SunTimeCloudLightController
-
-Here's a comprehensive list of all the endpoints available in the application:
-
-## Main Web Interface
-- `/` (GET) - Main dashboard
-- `/toggle` (GET) - Toggle lights on/off
-- `/cloudcheck` (GET) - Manually check cloud coverage
-
-## Configuration Endpoints
-- `/settime` (POST) - Update sunrise/sunset times
-- `/saveconfig` (POST) - Save basic configuration
-- `/saveadvanced` (POST) - Save advanced settings
-- `/savelocation` (POST) - Save location settings
-- `/savesystem` (POST) - Save system settings
-
-## API Endpoints
+### **API Endpoints**
 - `/api/status` (GET) - Get system status as JSON
-- `/api/logs` (GET) - Get logs as JSON (accepts 
-
-type
-
- parameter: cloud, light, system, error)
+- `/api/logs` (GET) - Get logs as JSON (accepts typeparameter: cloud, light, system, error)
 - `/toggle?api=1` (GET) - Toggle lights and return JSON status
 
-## System Endpoints
+### **System Endpoints**
 - `/reboot` (GET) - Reboot device
 - `/reset` (GET) - Reset to saved settings
 - `/updateonline` (GET) - Update sunrise/sunset times
 - `/reconnect` (GET) - Force WiFi reconnection
-- `/factory_reset` (GET) - Reset credentials to admin/admin
+- `/factory_reset` (GET) - Reset credentials
 - `/debug_auth` (GET) - Show authentication debug info
 
 All endpoints require basic authentication with the configured username and password.
