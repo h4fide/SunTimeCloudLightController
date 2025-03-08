@@ -351,7 +351,7 @@ String getSystemStateString() {
 bool isWithinMonitoringWindow(int currentHour, int currentMinute) {
     int currentTime = currentHour * 60 + currentMinute;
     int sunriseTime = sunriseHour * 60 + sunriseMinute;
-    int sunsetTime = sunsetHour * 60 + sunsetMinute;
+    int sunsetTime = sunsetHour * 60 + sunsetTime;
     
     bool beforeSunrise = (currentTime >= (sunriseTime - monitoringWindow) && 
                          currentTime < sunriseTime);
@@ -465,40 +465,33 @@ bool monitorCloudConditions(bool isSunrise) {
     monitoring_retry_count = 0;
     cloudStatus = String(cloudCoverage) + "% cloud coverage";
     
-    // Use hysteresis for more stable operation
-    static bool wasAboveThreshold = false;
-    bool isAboveThreshold = cloudCoverage > cloudThreshold;
-    bool shouldActivate;
+    // Check if cloud coverage exceeds threshold (with hysteresis for stability)
+    bool shouldActivate = false;
     
-    if (isAboveThreshold && !wasAboveThreshold) {
+    // First check if we're above threshold
+    if (cloudCoverage > cloudThreshold) {
         shouldActivate = true;
-        wasAboveThreshold = true;
-    } else if (!isAboveThreshold && wasAboveThreshold) {
-        // Only deactivate if we drop below threshold minus hysteresis
-        shouldActivate = !(cloudCoverage < (cloudThreshold - cloudHysteresis));
-        if (!shouldActivate) wasAboveThreshold = false;
-    } else {
-        shouldActivate = wasAboveThreshold;
-    }
-    
-    if (shouldActivate) {
         cloudStatus = "Activating (Cloud coverage: " + String(cloudCoverage) + "%)";
         cloudTriggeredActivation = true;
         currentState = ACTIVE;
-    } else {
+    } else if (cloudCoverage < (cloudThreshold - cloudHysteresis)) {
+        // Only deactivate if we drop below threshold minus hysteresis
+        shouldActivate = false;
         cloudStatus = "Normal (Cloud coverage: " + String(cloudCoverage) + "%)";
-    }
-    
-    if (isSunrise) {
-        monitoring_sunrise = !shouldActivate;
-        if (shouldActivate) TIME_RISE_OFFSET_ADDITIONAL += 30;
-        else TIME_RISE_OFFSET_ADDITIONAL = 0;
     } else {
-        monitoring_sunset = !shouldActivate;
-        if (shouldActivate) TIME_SET_OFFSET_ADDITIONAL = 0;
-        else TIME_SET_OFFSET_ADDITIONAL = 0;
+        // In the hysteresis zone - maintain previous state
+        // If we were previously activated, stay activated
+        shouldActivate = cloudTriggeredActivation;
     }
     
+    // Update monitoring flags based on activation decision
+    if (isSunrise) {
+        monitoring_sunrise = !shouldActivate; // Stop monitoring if activated
+    } else {
+        monitoring_sunset = !shouldActivate; // Stop monitoring if activated
+    }
+    
+    // Return the decision
     return shouldActivate;
 }
 
@@ -508,25 +501,52 @@ bool shouldActivateLights(int currentHour, int currentMinute) {
     int sunriseTime = sunriseHour * 60 + sunriseMinute;
     int sunsetTime = sunsetHour * 60 + sunsetMinute;
     
-    if (monitoring_sunrise && currentTime >= (sunriseTime - monitoringWindow)) {
-        return monitorCloudConditions(true);
+    // Check if we're in a monitoring window
+    bool beforeSunrise = (currentTime >= (sunriseTime - monitoringWindow) && 
+                         currentTime < sunriseTime);
+    bool beforeSunset = (currentTime >= (sunsetTime - monitoringWindow) && 
+                        currentTime < sunsetTime);
+                        
+    // Normal light activation schedule (night time)
+    bool isNightTime = (currentTime < sunriseTime || currentTime >= sunsetTime);
+    
+    // Check if we should be monitoring clouds
+    if (beforeSunrise && monitoring_sunrise) {
+        bool activateEarly = monitorCloudConditions(true);
+        if (activateEarly) {
+            // Early activation due to clouds before sunrise
+            return true;
+        }
     }
     
-    if (monitoring_sunset && currentTime >= (sunsetTime - monitoringWindow)) {
-        return monitorCloudConditions(false);
+    if (beforeSunset && monitoring_sunset) {
+        bool activateEarly = monitorCloudConditions(false);
+        if (activateEarly) {
+            // Early activation due to clouds before sunset
+            return true;
+        }
     }
     
-    bool isDuringNight = (currentTime < sunriseTime || currentTime >= sunsetTime);
-    if (isDuringNight) {
+    // If already cloud-triggered, maintain that state
+    if (cloudTriggeredActivation && (beforeSunrise || beforeSunset)) {
+        return true;
+    }
+    
+    // Normal schedule (night time) activation
+    if (isNightTime) {
         currentState = SCHEDULED;
         cloudStatus = "Scheduled";
+        // Reset cloud trigger when outside monitoring windows
+        if (!beforeSunrise && !beforeSunset) {
+            cloudTriggeredActivation = false;
+        }
+        return true;
     }
     
-    return isDuringNight;
+    // Default state - daytime, lights off
+    currentState = NORMAL;
+    return false;
 }
-
-
-
 
 //================ MODIFIED TIME FORMATTING FUNCTION ================
 String formatTime(double minutesFromMidnight, bool isSunrise) {
@@ -1163,6 +1183,7 @@ void loop() {
         if (overrideElapsedMinutes >= manualOverrideDuration) {
             manualOverride = false;
             currentState = NORMAL;
+            cloudTriggeredActivation = false; // Reset cloud trigger on manual override expiry
             Serial.println("Manual override expired, returning to automatic control");
         } else {
             toggleLights(manualLightState);
@@ -1171,15 +1192,32 @@ void loop() {
         time_t now = timeClient.getEpochTime();
         int currentHour = hour(now);
         int currentMinute = minute(now);
+        
+        // Check if we're within monitoring window for cloud coverage
         isWithinMonitoringWindow(currentHour, currentMinute);
+        
+        // Determine if lights should be on
         bool shouldBeOn = shouldActivateLights(currentHour, currentMinute);
         
+        // Only toggle the light state if it's changed
         static bool previousLightState = false;
         if (shouldBeOn != previousLightState) {
             toggleLights(shouldBeOn);
             previousLightState = shouldBeOn;
+            
+            // Log light state change with reason
+            if (shouldBeOn) {
+                if (cloudTriggeredActivation) {
+                    Serial.println("Lights ON: Cloud coverage triggered early activation");
+                } else {
+                    Serial.println("Lights ON: Regular schedule");
+                }
+            } else {
+                Serial.println("Lights OFF: Regular schedule");
+            }
         }
         
+        // Update LED indicators
         digitalWrite(ERROR_LED_PIN, wifiEnabled && (WiFi.status() != WL_CONNECTED));
         if (cloudTriggeredActivation) {
             digitalWrite(STATUS_LED_PIN, (millis() / 500) % 2); // Blink for cloud triggered
