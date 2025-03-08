@@ -2,7 +2,11 @@
 
 An ESP8266-based automated light control system that manages lighting based on sunrise/sunset times and cloud coverage conditions.
 
-### Sunset 🌇 Logic `Example`
+## Core Functionality
+
+The system uses a combination of sunrise/sunset calculations and cloud coverage monitoring to control lighting. The core functionality includes:
+
+### Simple `Example` of Sunset 🌇 Logic 
 ```
 IF Cloud Coverage < 75% THEN
     IF Sunset - 30min <= CurrentTime THEN
@@ -10,26 +14,42 @@ IF Cloud Coverage < 75% THEN
     ...
 ```
 
-## Features ✨
+### Light Activation Logic
 
-- Automatic light control based on sunrise and sunset times
-- Intelligent cloud coverage monitoring with adaptive scheduling
-- Web interface with authentication for remote control
-- OTA (Over-The-Air) firmware updates
-- Configurable time offsets and thresholds
-- EEPROM-based settings persistence
-- LED status indicators for system monitoring
-- Failsafe operation with offline capabilities
-- Can operate in offline mode 
-- Manual override for light control
+The system uses the following decision logic for light activation:
 
-## Upcoming Features 🚀
+$$
+L(t) = 
+\begin{cases} 
+1 & \text{if } M_{\text{override}} = \text{true} \text{ and } M_{\text{state}} = \text{ON} \\
+1 & \text{if } t < t_{\text{sunrise}} \text{ or } t \geq t_{\text{sunset}} \text{ (night time)} \\
+1 & \text{if } (t_{\text{sunrise}} - \Delta t_m) \leq t < t_{\text{sunrise}} \text{ and } C > T_c \text{ (cloudy morning)} \\
+1 & \text{if } (t_{\text{sunset}} - \Delta t_m) \leq t < t_{\text{sunset}} \text{ and } C > T_c \text{ (cloudy evening)} \\
+0 & \text{otherwise (daytime)}
+\end{cases}
+$$
 
-- [+] Weather forecast integration
-- [+] Energy consumption monitoring
-- [+] Customizable sunrise/sunset algorithms
-- [+] Add Settings for the web interface
+Where:
+- $L(t)$ is the light state (1=ON, 0=OFF) at time $t$
+- $t_{\text{sunrise}}$ and $t_{\text{sunset}}$ are calculated daily sunrise/sunset times
+- $\Delta t_m$ is the monitoring window (configurable, default 30 min)
+- $C$ is the current cloud coverage percentage
+- $T_c$ is the cloud coverage threshold (configurable, default 78%)
+- $M_{\text{override}}$ indicates if manual override is active
+- $M_{\text{state}}$ is the manual override light state
 
+
+## ✨ Feature Highlights
+
+| Category | Features |
+|----------|----------|
+| 🌅 **Light Control** | • Astronomical calculations for accurate sunrise/sunset times<br>• Smart cloud coverage detection and monitoring<br>• Configurable time offsets and thresholds |
+| 📊 **Monitoring** | • Real-time cloud coverage data analysis<br>• Data visualization dashboard with history charts<br>• System status and event logging |
+| 🌐 **Connectivity** | • Web interface with secure authentication<br>• OTA (Over-The-Air) updates<br>• Offline capability for reliable operation |
+| 🔧 **System** | • EEPROM settings persistence across power cycles<br>• Comprehensive logging of cloud coverage and light states<br>• LED status indicators for visual monitoring<br>• Failsafe operation during connection loss |
+| 👋 **User Control** | • Manual override options<br>• Customizable cloud coverage thresholds<br>• Adjustable timing parameters<br>• Password-protected access with configurable credentials |
+
+*The system intelligently adapts to natural lighting conditions based on astronomical calculations and real-time weather data while providing extensive monitoring and control capabilities.*
 
 
 ## Notes 📝
@@ -41,20 +61,28 @@ IF Cloud Coverage < 75% THEN
 
 - ESP8266 development board (NodeMCU or similar)
 - Relay module (for light control)
-- 2x LEDs for status indication
+- 2x LEDs for status indication (optional)
 - Power supply
 - Light fixture connection
+- PIR sensor (optional)
 
 ## Pin Configuration 🔢
+The hardware consists of an ESP8266 microcontroller connected to:
 
-- **RELAY_PIN** --> `GPIO2 (D4)` - Main light control
-- **ERROR_LED_PIN** --> `GPIO14 (D5)` - Error indicator
-- **STATUS_LED_PIN** --> `GPIO13 (D7)` - Status indicator
+$$
+\text{ESP8266} \rightarrow 
+\begin{cases} 
+\text{Relay (GPIO12/D6)} & \text{Light control} \\
+\text{LED (GPIO14/D5)} & \text{Error indication (optional)} \\
+\text{LED (GPIO13/D7)} & \text{Status indication (optional)}
+\end{cases}
+$$
 
-## Setup Instructions 📋
+
+## Step by Step Guide 📝
 
 1. **Hardware Assembly**
-   - Connect relay module to ESP8266 GPIO2 (D4)
+   - Connect relay module to ESP8266 GPIO12 (D6)
    - Connect error LED to GPIO14 (D5) ***Optional***
    - Connect status LED to GPIO13 (D7) ***Optional***
    - Connect power supply to ESP8266 and relay
@@ -107,7 +135,15 @@ IF Cloud Coverage < 75% THEN
    - Default login: ``admin/admin``
    - Verify sunrise/sunset times via ``serial monitor``
    - Test manual controls
+## Troubleshooting 🛠️
 
+- **Error LED On:**
+    - Wifi connection error
+- **Status LED Blinking when is:**
+    - No internet connection
+    - Cloud coverage API error
+    - NTP time sync error
+    
 ## Operation Modes 🔄
 
 1. **Normal Mode**
@@ -124,14 +160,6 @@ IF Cloud Coverage < 75% THEN
    - Toggle light state
    - Update times manually
 
-## Troubleshooting 🛠️
-
-- **Error LED On:**
-    - Wifi connection error
-- **Status LED Blinking when is:**
-    - No internet connection
-    - Cloud coverage API error
-    - NTP time sync error
 
 
 ## Contributing 🤝
@@ -139,20 +167,4 @@ IF Cloud Coverage < 75% THEN
 Feel free to submit issues and enhancement requests.
 
 
-Main Endpoints:
-/ - Root/homepage (GET)
-/settime - Set sunrise/sunset times (POST)
-/toggle - Toggle lights manually (GET)
-/cloudcheck - Check cloud conditions (GET)
-/saveconfig - Save configuration settings (POST)
-
-API Endpoints:
-/api/status - Get system status in JSON format (GET)
-
-Utility Endpoints:
-/reset - Load settings from EEPROM (GET)
-/updateonline - Update sunrise/sunset times from online (GET)
-/reconnect - Reconnect WiFi (GET)
-/factory_reset - Reset credentials to default (GET)
-/debug_auth - Show authentication debug info (GET)
 
