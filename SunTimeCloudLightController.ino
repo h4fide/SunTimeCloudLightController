@@ -12,6 +12,7 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include "index_html.h"
+#include "logging.h"  // Include the new logging system
 
 //================ GLOBAL VARIABLES ================
 float currentCloudCoverage = -1;
@@ -67,10 +68,7 @@ ESP8266WebServer server(80);
 SunSet sun;
 
 char deviceName[32] = "LightController"; // Device name for OTA and display
-int cloudHysteresis = CLOUD_COVERAGE_HYSTERESIS; // Hysteresis for cloud coverage
 int maxRetries = MAX_MONITORING_RETRIES;
-int timezoneOffsetSec = TIMEZONE_OFFSET; 
-int daylightOffsetSec = DAYLIGHT_OFFSET;
 
 //================ SYSTEM STATE ENUM ================
 enum SystemState {
@@ -461,6 +459,9 @@ bool monitorCloudConditions(bool isSunrise) {
         return false; // Don't activate yet, will retry later
     }
     
+    // Log cloud coverage data
+    logManager.logCloudCoverage(cloudCoverage);
+    
     monitoring_retry_count = 0;
     cloudStatus = String(cloudCoverage) + "% cloud coverage";
     
@@ -591,6 +592,14 @@ bool isDaylight(int currentHour, int currentMinute, int sunriseHour, int sunrise
     return (currentTime >= sunriseTime && currentTime < sunsetTime);
 }
 
+void toggleLights(bool on) {
+    digitalWrite(RELAY_PIN, on ? relayOn : relayOff);
+    digitalWrite(STATUS_LED_PIN, on);
+    
+    // Log the light state change
+    logManager.logLightState(on);
+}
+
 
 //================ WEB SERVER HANDLERS ================
 void handleRoot() {
@@ -617,7 +626,7 @@ void handleRoot() {
     page.replace("[LIGHT_STATE]", isLightOn ? "ON" : "OFF");
     page.replace("[CURRENT_TIME]", timeClient.getFormattedTime());
     page.replace("[BUTTON_TEXT]", isLightOn ? "Turn Off" : "Turn On");
-    page.replace("[BUTTON_ICON]", isLightOn ? "🌙" : "🔆");
+    page.replace("[BUTTON_ICON]", isLightOn ? "&#127769;" : "&#9728;");
     page.replace("[CLOUD_COVERAGE]", currentCloudCoverage < 0 ? "Unknown" : String(currentCloudCoverage, 1));
     page.replace("[CLOUD_STATUS]", isMonitoring ? stateInfo : cloudStatus);
     page.replace("[CLOUD_THRESHOLD]", String(cloudThreshold));
@@ -1052,6 +1061,9 @@ void setup() {
   // Load settings from EEPROM first
   loadSettings();
   
+  // Initialize the logging system
+  logManager.begin();
+  
   // Print all auth details for debugging
   Serial.println("\n*** AUTHENTICATION DEBUG ***");
   Serial.printf("HTTP username: [%s]\n", http_username);
@@ -1116,11 +1128,17 @@ void setup() {
   setupWebServer();
   server.begin();
   
+  // Log system startup
+  logManager.logSystemState(NORMAL);
+  
   Serial.println("Setup complete");
 }
 
 void loop() {
     ESP.wdtFeed();
+    
+    static SystemState previousState = NORMAL;
+    
     if (WiFi.status() == WL_CONNECTED) {
         ArduinoOTA.handle();
         server.handleClient();
@@ -1133,6 +1151,12 @@ void loop() {
         connectToWiFi();
     }
     
+    // Log system state changes
+    if (currentState != previousState) {
+        logManager.logSystemState(currentState);
+        previousState = currentState;
+    }
+    
     if (manualOverride) {
         unsigned long overrideElapsedMinutes = (millis() - manualOverrideStartTime) / 60000;
         
@@ -1141,8 +1165,7 @@ void loop() {
             currentState = NORMAL;
             Serial.println("Manual override expired, returning to automatic control");
         } else {
-            digitalWrite(RELAY_PIN, manualLightState ? relayOn : relayOff);
-            digitalWrite(STATUS_LED_PIN, manualLightState);
+            toggleLights(manualLightState);
         }
     } else {
         time_t now = timeClient.getEpochTime();
@@ -1150,7 +1173,13 @@ void loop() {
         int currentMinute = minute(now);
         isWithinMonitoringWindow(currentHour, currentMinute);
         bool shouldBeOn = shouldActivateLights(currentHour, currentMinute);
-        digitalWrite(RELAY_PIN, shouldBeOn ? relayOn : relayOff);
+        
+        static bool previousLightState = false;
+        if (shouldBeOn != previousLightState) {
+            toggleLights(shouldBeOn);
+            previousLightState = shouldBeOn;
+        }
+        
         digitalWrite(ERROR_LED_PIN, wifiEnabled && (WiFi.status() != WL_CONNECTED));
         if (cloudTriggeredActivation) {
             digitalWrite(STATUS_LED_PIN, (millis() / 500) % 2); // Blink for cloud triggered
@@ -1176,6 +1205,7 @@ void setupWebServer() {
     server.on("/reboot", HTTP_GET, handleReboot);
     
     server.on("/api/status", HTTP_GET, handleSystemStatus);
+    server.on("/api/logs", HTTP_GET, handleGetLogs); // New endpoint for logs
     
     server.on("/reset", HTTP_GET, []() {
         loadSettings();
@@ -1221,4 +1251,25 @@ void setupWebServer() {
     server.onNotFound(handleNotFound);
     server.enableCORS(true);
     Serial.println("Web server routes configured");
+}
+
+//================ NEW API ENDPOINT FOR LOGS ================
+void handleGetLogs() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+    
+    String type = server.arg("type");
+    LogEntryType logType = LOG_CLOUD_COVERAGE;  // Default to cloud coverage
+    
+    if (type == "light") {
+        logType = LOG_LIGHT_STATE;
+    } else if (type == "system") {
+        logType = LOG_SYSTEM_STATE;
+    } else if (type == "error") {
+        logType = LOG_ERROR;
+    }
+    
+    String jsonResponse = logManager.getLogsAsJson(logType);
+    server.send(200, "application/json", jsonResponse);
 }
