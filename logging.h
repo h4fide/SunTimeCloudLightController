@@ -9,7 +9,6 @@
 #define LOG_EEPROM_SIZE 3072  // 3KB for logs
 #define MAX_LOG_ENTRIES 100   // Maximum number of log entries to store
 
-// Log entry types
 enum LogEntryType {
   LOG_CLOUD_COVERAGE = 0,
   LOG_LIGHT_STATE = 1,
@@ -17,21 +16,19 @@ enum LogEntryType {
   LOG_ERROR = 3
 };
 
-// Compact log entry structure (8 bytes per entry)
 struct LogEntry {
-  uint32_t timestamp;    // Unix timestamp (4 bytes)
-  uint8_t type;          // LogEntryType (1 byte)
-  uint8_t value;         // Value 0-255 (1 byte)
-  uint16_t extraData;    // Extra data (2 bytes) - can store cloud coverage as int, etc.
+  uint32_t timestamp;    
+  uint8_t type;          
+  uint8_t value;         
+  uint16_t extraData;    
 };
 
-// Log storage manager class
 class LogManager {
 private:
-  uint16_t logCount;             // Current number of log entries
-  uint16_t logHead;              // Current position in circular buffer
-  uint32_t lastResetTimestamp;   // When was the log last reset
-  bool initialized;              // Has the log been initialized
+  uint16_t logCount;             
+  uint16_t logHead;              
+  uint32_t lastResetTimestamp;   
+  bool initialized; 
 
   uint16_t getMetadataAddress() {
     return LOG_EEPROM_START;
@@ -84,13 +81,11 @@ public:
     EEPROM.commit();
   }
 
-  // Add a new log entry
   void addLog(LogEntryType type, uint8_t value, uint16_t extraData = 0) {
     if (!initialized) begin();
     
     uint32_t currentTime = now();
     
-    // Check if we need to reset logs (weekly)
     if (shouldResetWeekly(currentTime)) {
       resetLogs(currentTime);
     }

@@ -110,7 +110,6 @@ void saveSettings() {
   EEPROM.put(addr, locationLatitude); addr += sizeof(float);
   EEPROM.put(addr, locationLongitude); addr += sizeof(float);
   
-  // Save username and password - limit length for safety
   for (int i = 0; i < 32; i++) {
     EEPROM.write(addr++, adminUsername[i]);
     if (adminUsername[i] == 0) break;
@@ -121,7 +120,6 @@ void saveSettings() {
     if (adminPassword[i] == 0) break;
   }
   
-  // Save device name
   for (int i = 0; i < 32; i++) {
     EEPROM.write(addr++, deviceName[i]);
     if (deviceName[i] == 0) break;
@@ -137,7 +135,6 @@ void saveSettings() {
 void loadSettings() {
   EEPROM.begin(512);
   
-  // Read settings with validation
   EEPROM.get(0, sunriseHour);
   EEPROM.get(sizeof(int), sunriseMinute);
   EEPROM.get(2 * sizeof(int), sunsetHour);
@@ -163,25 +160,23 @@ void loadSettings() {
   EEPROM.get(addr, sunriseOffset); addr += sizeof(int);
   EEPROM.get(addr, sunsetOffset); addr += sizeof(int);
   
-  // Read location data
   EEPROM.get(addr, locationLatitude); addr += sizeof(float);
   EEPROM.get(addr, locationLongitude); addr += sizeof(float);
   
-  // Read username and password - limit length for safety
   int i;
   for (i = 0; i < 31; i++) {
     char c = EEPROM.read(addr++);
     adminUsername[i] = c;
     if (c == 0) break;
   }
-  adminUsername[i] = 0; // Ensure null termination
+  adminUsername[i] = 0; 
   
   for (i = 0; i < 31; i++) {
     char c = EEPROM.read(addr++);
     adminPassword[i] = c;
     if (c == 0) break;
   }
-  adminPassword[i] = 0; // Ensure null termination
+  adminPassword[i] = 0; 
   
   // Read device name
   for (i = 0; i < 31; i++) {
@@ -189,7 +184,7 @@ void loadSettings() {
     deviceName[i] = c;
     if (c == 0) break;
   }
-  deviceName[i] = 0; // Ensure null termination
+  deviceName[i] = 0; 
   
   // Validate values
   sunriseHour = constrain(sunriseHour, 0, 23);
@@ -206,7 +201,6 @@ void loadSettings() {
   sunriseOffset = constrain(sunriseOffset, -120, 120);  
   sunsetOffset = constrain(sunsetOffset, -120, 120);
   
-  // If location values seem wrong, use defaults
   if (isnan(locationLatitude) || locationLatitude < -90 || locationLatitude > 90) {
     locationLatitude = LATITUDE;
   }
@@ -215,12 +209,10 @@ void loadSettings() {
     locationLongitude = LONGITUDE;
   }
   
-  // If device name is empty, set default
   if (strlen(deviceName) == 0) {
     strcpy(deviceName, "LightController");
   }
   
-  // Copy values to http variables (fixing the pointer issue)
   strcpy(http_username, adminUsername);
   strcpy(http_password, adminPassword);
   
@@ -268,7 +260,7 @@ void enableWiFi() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     wifiEnabled = true;
-    lastTimeSync = 0; // Force time sync
+    lastTimeSync = 0; 
     Serial.println("WiFi enabled");
   }
 }
@@ -305,7 +297,6 @@ void setTime_lf(int hours, int minutes) {
 //================ SYSTEM STATE STRING HELPER ================
 String getSystemStateString() {
     String stateStr = "";
-    // Calculate time values before switch statement
     int currentTime = hour() * 60 + minute();
     int sunriseTime = sunriseHour * 60 + sunriseMinute;
     int sunsetTime = sunsetHour * 60 + sunsetMinute;
@@ -314,7 +305,6 @@ String getSystemStateString() {
         case MONITORING: {
             stateStr = "Monitoring clouds (" + 
                       String(TIME_OFFSET_MONITORING) + " min before ";
-            // Check if monitoring before sunrise or sunset
             if (currentTime < sunriseTime) {
                 stateStr += "sunrise)";
             } else {
@@ -331,7 +321,6 @@ String getSystemStateString() {
             break;
         }
         case MANUAL: {
-            // Calculate remaining override time
             int remainingMinutes = manualOverrideDuration - ((millis() - manualOverrideStartTime) / 60000);
             stateStr = "Manual override (" + String(remainingMinutes) + " min remaining)";
             break;
@@ -450,48 +439,40 @@ bool monitorCloudConditions(bool isSunrise) {
     }
     
     float cloudCoverage = getCloudCoverage();
-    currentCloudCoverage = cloudCoverage; // Update global variable
+    currentCloudCoverage = cloudCoverage; 
     
     if (cloudCoverage < 0) {
         cloudStatus = "Error fetching data";
         monitoring_retry_count++;
-        delay(1000); // Short delay before returning to main loop
+        delay(1000); // Short delay
         return false; // Don't activate yet, will retry later
     }
     
-    // Log cloud coverage data
     logManager.logCloudCoverage(cloudCoverage);
     
     monitoring_retry_count = 0;
     cloudStatus = String(cloudCoverage) + "% cloud coverage";
     
-    // Check if cloud coverage exceeds threshold (with hysteresis for stability)
     bool shouldActivate = false;
     
-    // First check if we're above threshold
     if (cloudCoverage > cloudThreshold) {
         shouldActivate = true;
         cloudStatus = "Activating (Cloud coverage: " + String(cloudCoverage) + "%)";
         cloudTriggeredActivation = true;
         currentState = ACTIVE;
     } else if (cloudCoverage < (cloudThreshold - cloudHysteresis)) {
-        // Only deactivate if we drop below threshold minus hysteresis
         shouldActivate = false;
         cloudStatus = "Normal (Cloud coverage: " + String(cloudCoverage) + "%)";
     } else {
-        // In the hysteresis zone - maintain previous state
-        // If we were previously activated, stay activated
         shouldActivate = cloudTriggeredActivation;
     }
     
-    // Update monitoring flags based on activation decision
     if (isSunrise) {
-        monitoring_sunrise = !shouldActivate; // Stop monitoring if activated
+        monitoring_sunrise = !shouldActivate; 
     } else {
-        monitoring_sunset = !shouldActivate; // Stop monitoring if activated
+        monitoring_sunset = !shouldActivate; 
     }
     
-    // Return the decision
     return shouldActivate;
 }
 
@@ -514,7 +495,6 @@ bool shouldActivateLights(int currentHour, int currentMinute) {
     if (beforeSunrise && monitoring_sunrise) {
         bool activateEarly = monitorCloudConditions(true);
         if (activateEarly) {
-            // Early activation due to clouds before sunrise
             return true;
         }
     }
@@ -522,12 +502,10 @@ bool shouldActivateLights(int currentHour, int currentMinute) {
     if (beforeSunset && monitoring_sunset) {
         bool activateEarly = monitorCloudConditions(false);
         if (activateEarly) {
-            // Early activation due to clouds before sunset
             return true;
         }
     }
     
-    // If already cloud-triggered, maintain that state
     if (cloudTriggeredActivation && (beforeSunrise || beforeSunset)) {
         return true;
     }
@@ -536,14 +514,12 @@ bool shouldActivateLights(int currentHour, int currentMinute) {
     if (isNightTime) {
         currentState = SCHEDULED;
         cloudStatus = "Scheduled";
-        // Reset cloud trigger when outside monitoring windows
         if (!beforeSunrise && !beforeSunset) {
             cloudTriggeredActivation = false;
         }
         return true;
     }
     
-    // Default state - daytime, lights off
     currentState = NORMAL;
     return false;
 }
@@ -553,16 +529,14 @@ String formatTime(double minutesFromMidnight, bool isSunrise) {
     int hours = int(minutesFromMidnight / 60);
     int minutes = int(minutesFromMidnight) % 60;
     
-    // Use the configurable offsets
     int timeOffset = isSunrise ? sunriseOffset : sunsetOffset;
     int additionalOffset = isSunrise ? TIME_RISE_OFFSET_ADDITIONAL : TIME_SET_OFFSET_ADDITIONAL;
     
-    // Apply total offset at once for more accuracy
     int totalOffset = timeOffset + additionalOffset;
     int totalMinutes = (hours * 60 + minutes) - totalOffset;
     
     if (totalMinutes < 0) {
-        totalMinutes += 24 * 60; // Add a full day
+        totalMinutes += 24 * 60;
     }
     
     hours = (totalMinutes / 60) % 24;
@@ -575,7 +549,7 @@ String formatTime(double minutesFromMidnight, bool isSunrise) {
 
 void updateSunriseSunsetTime() {
     sun.setCurrentDate(year(), month(), day());
-    sun.setTZOffset((timezoneOffsetSec + daylightOffsetSec) / 3600.0); // Convert seconds to hours
+    sun.setTZOffset((timezoneOffsetSec + daylightOffsetSec) / 3600.0);
     sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
     
     double sunrise = sun.calcSunrise();
@@ -616,19 +590,16 @@ void toggleLights(bool on) {
     digitalWrite(RELAY_PIN, on ? relayOn : relayOff);
     digitalWrite(STATUS_LED_PIN, on);
     
-    // Log the light state change
     logManager.logLightState(on);
 }
 
 
 //================ WEB SERVER HANDLERS ================
 void handleRoot() {
-    // Print the raw authorization header to see what's being sent
     Serial.println("Auth header: " + server.header("Authorization"));
     
     if (!server.authenticate(http_username, http_password)) {
         Serial.printf("Authentication failed. Expected: %s/%s\n", http_username, http_password);
-        // Print all headers to debug
         for (int i = 0; i < server.headers(); i++) {
             Serial.printf("Header[%s]: %s\n", 
                         server.headerName(i).c_str(), 
@@ -853,7 +824,6 @@ void handleSaveConfig() {
     server.send(303);
 }
 
-// Add new handlers for the advanced and system configurations
 void handleSaveAdvanced() {
     if (!server.authenticate(http_username, http_password)) {
         return server.requestAuthentication();
@@ -914,13 +884,11 @@ void handleSaveAdvanced() {
         saveSettings();
         
         if (requiresReconnect) {
-            // Update the NTP client with new offsets
             timeClient.setTimeOffset(timezoneOffsetSec + daylightOffsetSec);
-            lastTimeSync = 0; // Force time sync
+            lastTimeSync = 0;
         }
         
         if (sunTimeChanged) {
-            // Recalculate sunrise/sunset times
             updateSunriseSunsetTime();
         }
     }
@@ -941,8 +909,8 @@ void handleSaveSystem() {
         server.arg("username").length() < 32) {
         if (strcmp(adminUsername, server.arg("username").c_str()) != 0) {
             strncpy(adminUsername, server.arg("username").c_str(), 31);
-            adminUsername[31] = 0; // Ensure null termination
-            strcpy(http_username, adminUsername); // Update the authentication variable
+            adminUsername[31] = 0; 
+            strcpy(http_username, adminUsername); 
             changed = true;
             credentialsChanged = true;
         }
@@ -952,8 +920,8 @@ void handleSaveSystem() {
         server.arg("password").length() < 32) {
         if (strcmp(adminPassword, server.arg("password").c_str()) != 0) {
             strncpy(adminPassword, server.arg("password").c_str(), 31);
-            adminPassword[31] = 0; // Ensure null termination
-            strcpy(http_password, adminPassword); // Update the authentication variable
+            adminPassword[31] = 0; 
+            strcpy(http_password, adminPassword); 
             changed = true;
             credentialsChanged = true;
         }
@@ -963,7 +931,7 @@ void handleSaveSystem() {
         server.arg("deviceName").length() < 32) {
         if (strcmp(deviceName, server.arg("deviceName").c_str()) != 0) {
             strncpy(deviceName, server.arg("deviceName").c_str(), 31);
-            deviceName[31] = 0; // Ensure null termination
+            deviceName[31] = 0; 
             changed = true;
         }
     }
@@ -1024,13 +992,10 @@ void handleSaveLocation() {
         Serial.printf("Location updated to: %f, %f\n", locationLatitude, locationLongitude);
         saveSettings();
         
-        // Apply changes to the sunset calculator
         sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
         
-        // Recalculate sunrise/sunset times
         updateSunriseSunsetTime();
         
-        // Force time sync
         lastTimeSync = 0;
     }
     
@@ -1043,7 +1008,7 @@ void handleReboot() {
         return server.requestAuthentication();
     }
     
-    server.send(200, "text/html", "<html><body><h1>Rebooting...</h1><p>The device is rebooting. Please wait 30 seconds before reconnecting.</p><script>setTimeout(function(){location.href='/'},30000);</script></body></html>");
+    server.send(200, "text/html", "<html><body><h1>Rebooting...</h1><p>The device is rebooting. Please wait 10 seconds before reconnecting.</p><script>setTimeout(function(){location.href='/'},30000);</script></body></html>");
     delay(500);
     ESP.restart();
 }
@@ -1078,32 +1043,26 @@ void setup() {
   lastTimeSync = millis();
   wifiEnabled = true;
   
-  // Load settings from EEPROM first
   loadSettings();
   
-  // Initialize the logging system
   logManager.begin();
   
-  // Print all auth details for debugging
   Serial.println("\n*** AUTHENTICATION DEBUG ***");
   Serial.printf("HTTP username: [%s]\n", http_username);
   Serial.printf("HTTP password: [%s]\n", http_password);
   Serial.printf("Admin username: [%s]\n", adminUsername);
   Serial.printf("Admin password: [%s]\n", adminPassword);
   
-  // Check if credentials are valid, if not set defaults
   if (strlen(adminUsername) == 0 || strlen(adminPassword) == 0) {
     strcpy(adminUsername, "admin");
     strcpy(adminPassword, "admin");
     strcpy(http_username, "admin");
     strcpy(http_password, "admin");
     
-    // Save the default credentials to EEPROM
     saveSettings();
     Serial.println("Set and saved default credentials: admin/admin");
   }
   
-  // Check for any non-printable characters that might cause issues
   bool hasBadChars = false;
   for (int i = 0; i < strlen(http_username); i++) {
     if (http_username[i] < 32 || http_username[i] > 126) {
@@ -1134,21 +1093,18 @@ void setup() {
   connectToWiFi();
   
   ArduinoOTA.begin();
-  ArduinoOTA.setHostname(deviceName); // Use the configured device name
-  ArduinoOTA.setPassword(adminPassword); // Use the admin password for OTA
+  ArduinoOTA.setHostname(deviceName); 
+  ArduinoOTA.setPassword(adminPassword);
   
-  // Apply configured timezone and DST settings
   timeClient.setTimeOffset(timezoneOffsetSec + daylightOffsetSec);
   timeClient.begin();
   updateLocalTime();
 
-  // Use stored latitude and longitude
   sun.setPosition(locationLatitude, locationLongitude, (timezoneOffsetSec + daylightOffsetSec) / 3600.0);
   updateSunriseSunsetTime();
   setupWebServer();
   server.begin();
   
-  // Log system startup
   logManager.logSystemState(NORMAL);
   
   Serial.println("Setup complete");
@@ -1171,7 +1127,6 @@ void loop() {
         connectToWiFi();
     }
     
-    // Log system state changes
     if (currentState != previousState) {
         logManager.logSystemState(currentState);
         previousState = currentState;
@@ -1183,7 +1138,7 @@ void loop() {
         if (overrideElapsedMinutes >= manualOverrideDuration) {
             manualOverride = false;
             currentState = NORMAL;
-            cloudTriggeredActivation = false; // Reset cloud trigger on manual override expiry
+            cloudTriggeredActivation = false;
             Serial.println("Manual override expired, returning to automatic control");
         } else {
             toggleLights(manualLightState);
@@ -1193,19 +1148,15 @@ void loop() {
         int currentHour = hour(now);
         int currentMinute = minute(now);
         
-        // Check if we're within monitoring window for cloud coverage
         isWithinMonitoringWindow(currentHour, currentMinute);
         
-        // Determine if lights should be on
         bool shouldBeOn = shouldActivateLights(currentHour, currentMinute);
         
-        // Only toggle the light state if it's changed
         static bool previousLightState = false;
         if (shouldBeOn != previousLightState) {
             toggleLights(shouldBeOn);
             previousLightState = shouldBeOn;
             
-            // Log light state change with reason
             if (shouldBeOn) {
                 if (cloudTriggeredActivation) {
                     Serial.println("Lights ON: Cloud coverage triggered early activation");
@@ -1217,12 +1168,11 @@ void loop() {
             }
         }
         
-        // Update LED indicators
         digitalWrite(ERROR_LED_PIN, wifiEnabled && (WiFi.status() != WL_CONNECTED));
         if (cloudTriggeredActivation) {
             digitalWrite(STATUS_LED_PIN, (millis() / 500) % 2); // Blink for cloud triggered
         } else {
-            digitalWrite(STATUS_LED_PIN, shouldBeOn); // Steady for normal schedule
+            digitalWrite(STATUS_LED_PIN, shouldBeOn);
         }
     }
     
@@ -1243,7 +1193,7 @@ void setupWebServer() {
     server.on("/reboot", HTTP_GET, handleReboot);
     
     server.on("/api/status", HTTP_GET, handleSystemStatus);
-    server.on("/api/logs", HTTP_GET, handleGetLogs); // New endpoint for logs
+    server.on("/api/logs", HTTP_GET, handleGetLogs); 
     
     server.on("/reset", HTTP_GET, []() {
         loadSettings();
@@ -1262,7 +1212,6 @@ void setupWebServer() {
         server.sendHeader("Location", "/");
         server.send(303);
     });
-    // Add a special reset credentials endpoint
     server.on("/factory_reset", HTTP_GET, []() {
         Serial.println("FACTORY RESET requested - resetting credentials to admin/admin");
         strcpy(adminUsername, "admin");
@@ -1271,7 +1220,6 @@ void setupWebServer() {
         strcpy(http_password, "admin");
         saveSettings();
         
-        // Send response without requiring authentication
         server.send(200, "text/html", "<html><body><h1>Credentials Reset</h1>"
                    "<p>Username and password have been reset to: admin/admin</p>"
                    "<p><a href='/'>Go to login page</a></p></body></html>");
@@ -1283,7 +1231,6 @@ void setupWebServer() {
         debug += "<p>EEPROM credentials: " + String(adminUsername) + " / " + String(adminPassword) + "</p>";
         debug += "</body></html>";
         
-        // Send without auth to allow debugging
         server.send(200, "text/html", debug);
     });
     server.onNotFound(handleNotFound);
@@ -1298,7 +1245,7 @@ void handleGetLogs() {
     }
     
     String type = server.arg("type");
-    LogEntryType logType = LOG_CLOUD_COVERAGE;  // Default to cloud coverage
+    LogEntryType logType = LOG_CLOUD_COVERAGE;
     
     if (type == "light") {
         logType = LOG_LIGHT_STATE;

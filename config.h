@@ -2,13 +2,12 @@
 #define CONFIG_H
 
 //================ NETWORK CONFIGURATION ================
-const char *WIFI_SSID = "";
-const char *WIFI_PASSWORD = "";
+const char *WIFI_SSID = "YOUR_SSID";
+const char *WIFI_PASSWORD = "YOUR_PASSWORD";
 
-const char *NTP_SERVER = "time.google.com"; // Using more reliable NTP server
+const char *NTP_SERVER = "time.google.com"; // Using more reliable NTP server Than NTP_POOL
 
 //================ CLOUD COVERAGE CONFIGURATION ================
-// These are now default values that can be overridden in the web UI
 const int CLOUD_COVERAGE_THRESHOLD = 78;
 const int CLOUD_COVERAGE_HYSTERESIS = 5;
 
@@ -24,7 +23,6 @@ const int ERROR_LED_PIN = 14;   // D5 - Error indicator
 const int STATUS_LED_PIN = 13;  // D7 - Status indicator
 
 //================ TIME CONFIGURATION ================
-// These are now default values that can be overridden in the web UI
 const int TIME_RISE_OFFSET_MINUTES = 0;
 const int TIME_SET_OFFSET_MINUTES = 0;
 
@@ -36,7 +34,6 @@ const int RETRY_DELAY_MS = 300000; // 5 minutes between retries
 const int DAYLIGHT_OFFSET = 0; // Daylight saving time offset in seconds 3600 for 1 hour
 
 //================ LOCATION CONFIGURATION ================
-// These are now default values that can be overridden in the web UI
 const float LATITUDE = 0;  // Update with your actual latitude
 const float LONGITUDE = 0; // Update with your actual longitude
 
