@@ -167,7 +167,20 @@ $$
    - Toggle light state
    - Update times manually
 
+## HTTP Endpoints 🌐
 
+### API Endpoints
+- `/api/status` (GET) - Get system status as JSON
+- `/api/logs` (GET) - Get logs as JSON (accepts `type` parameter: cloud, light, system, error)
+- `/toggle?api=1` (GET) - Toggle lights and return JSON status
+
+### System Endpoints
+- `/reboot` (GET) - Reboot device
+- `/reset` (GET) - Reset to saved settings
+- `/updateonline` (GET) - Update sunrise/sunset times
+- `/reconnect` (GET) - Force WiFi reconnection
+- `/factory_reset` (GET) - Reset credentials
+- `/debug_auth` (GET) - Show authentication debug info
 
 ## Contributing 🤝
 
