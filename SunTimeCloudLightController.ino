@@ -1244,7 +1244,7 @@ void handleGetLogs() {
         return server.requestAuthentication();
     }
     
-    String type = server.arg("type");
+    String type = server.hasArg("type") ? server.arg("type") : "cloud";
     LogEntryType logType = LOG_CLOUD_COVERAGE;
     
     if (type == "light") {
