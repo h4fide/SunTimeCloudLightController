@@ -828,12 +828,22 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
         function loadLogData(type) {
             fetch('/api/logs?type=' + type)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     updateChart(data, type);
                 })
                 .catch(error => {
-                    console.error('Error fetching log data:', error);
+                    console.error('Error fetching ' + type + ' log data:', error);
+                    // Show error on chart
+                    const chartContainer = document.getElementById(type + 'ChartContainer');
+                    if (chartContainer) {
+                        chartContainer.innerHTML = '<div style="color:red;text-align:center;padding:20px;">Error loading data: ' + error.message + '</div>';
+                    }
                 });
         }
 
@@ -875,12 +885,31 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
                 const labelString = dateString + ' ' + timeString;
                 
                 chart.data.labels.push(labelString);
-                chart.data.datasets[0].data.push(entry.value);
+                
+                // For system state, we might have a state name
+                if (type === 'system' && entry.stateName) {
+                    // Add annotation for state changes
+                    if (!chart.options.plugins.annotation) {
+                        chart.options.plugins.annotation = {
+                            annotations: []
+                        };
+                    }
+                    
+                    // We'll use the stateName in the tooltip
+                    const dataPoint = {
+                        x: labelString,
+                        y: entry.value,
+                        stateName: entry.stateName
+                    };
+                    chart.data.datasets[0].data.push(dataPoint);
+                } else {
+                    chart.data.datasets[0].data.push(entry.value);
+                }
             });
             
             chart.update();
         }
-        
+
         function activateChartTab(evt, chartId) {
             // Hide all chart contents
             const chartContents = document.getElementsByClassName('chart-tab-content');
@@ -911,7 +940,15 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         }
 
         // Initialize charts on page load
-        document.addEventListener('DOMContentLoaded', initCharts);
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            
+            // Add reload button event
+            document.getElementById('timeRange').addEventListener('change', updateAllCharts);
+            
+            // Set up periodic refresh every 5 minutes
+            setInterval(updateAllCharts, 300000);
+        });
     </script>
 </body>
 </html>
