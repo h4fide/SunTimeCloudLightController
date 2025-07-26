@@ -21,20 +21,7 @@ IF Cloud Coverage < 75% THEN
     ...
 ```
 
-### Light Activation Logic
 
-The system uses the following decision logic for light activation:
-
-$$
-L(t) = 
-\begin{cases} 
-1 & \text{if } M_{\text{override}} = \text{true} \text{ and } M_{\text{state}} = \text{ON} \\
-1 & \text{if } t < t_{\text{sunrise}} \text{ or } t \geq t_{\text{sunset}} \text{ (night time)} \\
-1 & \text{if } (t_{\text{sunrise}} - \Delta t_m) \leq t < t_{\text{sunrise}} \text{ and } C > T_c \text{ (cloudy morning)} \\
-1 & \text{if } (t_{\text{sunset}} - \Delta t_m) \leq t < t_{\text{sunset}} \text{ and } C > T_c \text{ (cloudy evening)} \\
-0 & \text{otherwise (daytime)}
-\end{cases}
-$$
 
 Where:
 - $L(t)$ is the light state (1=ON, 0=OFF) at time $t$
